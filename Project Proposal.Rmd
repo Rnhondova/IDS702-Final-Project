@@ -1,0 +1,34 @@
+---
+title: "Proposal Final Project - IDS702"
+author: "Ronald Tinashe Nhondova - RTN6"
+date: "11/4/2019"
+output: pdf_document
+fontsize: 9pt
+---
+
+# Overview
+The vehicle insurance pricing models reflect the amount of risk policy holders expose the insurer to, bar cases where the product is deliberately sold as a loss leader, to create opportunities for cross selling. As a result, getting access into the risk factors used and premiums charged, allows one to get insight into risk exposures of the different areas to the insured perils. 
+
+# Research Questions
+
+1. Identify how claims per peril (i.e. robbery, partial collision, total collision, fire)  differ over the demographic factors in the different in the states.
+2. What is the perceived relative risk of the different states in Brazil as per insurance premium pricing in the Dataset
+
+# Data
+The dataset for the analysis is about the Brazilian vehicle insurance market with policy data based on the AUTOSEG (an acronym for Statistical System for Automobiles). Each record includes risk features, claim amount and claim history for year 2011 with the columns in the dataset as follows:
+
+* ***Gender*** - A character string ("factor") for the gender (also indicates corporate policies).
+* ***DrivAge*** - A character string ("factor") for the driver age group.
+* ***VehYear*** - A numeric for the vehicle year. ***FullVehCode*** - A character string ("factor") for the full vehicle code.
+* ***VehCode*** - A character string ("factor") for the vehicle group. ***Area*** - Local area name ("factor").
+* ***State*** - A character string for the state name ("factor"). ***StateAb*** - Abbreviated state name ("factor"). 
+* ***ExposTotal*** - Total exposure for period. ***ExposFireRob*** - Exposure for fire and robbery guarantees. 
+* ***PremTotal*** - Total premium. ***PremFireRob*** - Premium for fire and robbery guarantees.
+* ***SumInsAvg*** - Average of sum insured.
+* ***ClaimNbRob,ClaimNbPartColl,ClaimNbTotColl,ClaimNbFire,ClaimNbOther*** - Number of claims during the exposure period, respectively for robbery, partial collision, total collision, fire and other guarantees.
+* ***ClaimAmountRob, ClaimAmountPartColl, ClaimAmountTotColl, ClaimAmountFire, ClaimAmountOther*** - Claim amounts during the exposure period, respectively for robbery, partial collision, total collision, fire and other guarantees.
+
+The dataset has ***1 965 355*** vehicle insurance policies in total. Potential problems with the data set are the missing data for Gender, DrivAge, VehModel and VehGroup. 
+
+# Project Plan
+Data cleaning, Exploratory data analysis, Model exploration and finalization then Report and Presentation. Potential models: Tweedie Generalized linear model or a combination of Poisson GLM and Gamma GLM.

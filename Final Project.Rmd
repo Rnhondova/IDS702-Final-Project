@@ -1,0 +1,105 @@
+---
+title: "Final Project"
+author: "Ronald Tinashe Nhondova - RTN6"
+date: "11/12/2019"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(CASdatasets)
+library(ggplot2)
+library(mice)
+library(dplyr)
+library(VIM)
+library(lattice)
+library(tweedie)
+```
+
+```{r data_import}
+data(brvehins1a,brvehins1b,brvehins1c,brvehins1d,brvehins1e)
+```
+
+```{r Initial EDA}
+summary(brvehins1a)
+summary(brvehins1b)
+summary(brvehins1c)
+summary(brvehins1d)
+summary(brvehins1e)
+```
+
+```{r visualize missing data}
+aggr(brvehins1a,col=c("lightblue3","darkred"),numbers=TRUE,sortVars=TRUE,labels=names(brvehins1a),
+                    cex.axis=.7,gap=3,ylab=c("Proportion missing","Missingness pattern"))
+
+aggr(brvehins1a[which(brvehins1a$Gender == "Corporate"),],col=c("lightblue3","darkred"),numbers=TRUE,sortVars=TRUE,labels=names(brvehins1a),
+                    cex.axis=.7,gap=3,ylab=c("Proportion missing","Missingness pattern"))
+```
+
+# Data adjustments
+* Policies with Gender ***Corporate*** and missing m
+
+```{r data wrangling}
+brvehins_comb <- rbind_all(list(brvehins1a,brvehins1b,brvehins1c,brvehins1d,brvehins1e))
+
+brvehinsClaims <- brvehins_comb %>% mutate(ClaimsTotal=rowSums(brvehins_comb[,c(19:23)])) %>% select(-c(StateAb,ExposFireRob,PremFireRob,VehModel,ClaimNbRob,ClaimNbPartColl,ClaimNbTotColl,ClaimNbFire,ClaimNbOther,ClaimAmountRob,ClaimAmountPartColl, ClaimAmountTotColl, ClaimAmountFire, ClaimAmountOther))
+
+aggr(brvehinsClaims,col=c("lightblue3","darkred"),numbers=TRUE,sortVars=TRUE,labels=names(brvehinsClaims),
+                    cex.axis=.7,gap=3,ylab=c("Proportion missing","Missingness pattern"))
+
+```
+
+```{r impute-missing-data}
+brvehinsClaims_imp <- mice(brvehinsClaims,m=2,defaultMethod=c("norm","logreg","polyreg","polr"),print=F,seed = 1234)
+stripplot(brvehinsClaims_imp, col=c("grey","darkred"),pch=c(1,20))
+densityplot(brvehinsClaims_imp)
+```
+
+```{r data-wrangling-2}
+
+brvehinsClaims_om <- brvehinsClaims %>% filter((Gender == "Corporate" & rowSums(is.na(brvehinsClaims[,c(4:10)]))==0) | (Gender != "Corporate" & rowSums(is.na(brvehinsClaims))==0))
+
+brvehinsClaimSev <- brvehins_comb %>% select(-c(ExposFireRob,PremFireRob,VehModel)) %>% filter((Gender == "Corporate" & rowSums(is.na(brvehins_comb[,c(2:20)]))==0) | (Gender != "Corporate" & rowSums(is.na(brvehins_comb))==0)) %>% mutate(claims_SevRob=ClaimAmountRob/ClaimNbRob,claims_SevPartColl=ClaimAmountPartColl/ClaimNbPartColl,claims_SevTotColl=ClaimAmountTotColl/ClaimNbTotColl,claims_SevFire=ClaimAmountFire/ClaimNbFire,claims_SevOther=ClaimAmountOther/ClaimNbOther) %>% filter(claims_SevRob != Inf & claims_SevPartColl != Inf & claims_SevTotColl != Inf & claims_SevFire != Inf & claims_SevOther != Inf)
+
+summary(brvehinsClaimFreq)
+summary(brvehinsClaimSev)
+```
+
+```{r remove-missing}
+brvehinsClaims_nm <- brvehinsClaims %>% filter(rowSums(is.na(brvehinsClaims))==0)
+summary(brvehinsClaims_nm)
+
+brvehinsClaims_nm_imp <- mice(brvehinsClaims_nm,m=2,defaultMethod=c("norm","logreg","polyreg","polr"),print=F,seed = 1234,nnet.MaxNWts = 2000)
+
+```
+
+```{r modelling da}
+
+```{r EDA part1}
+
+ggplot(brvehinsClaims_nm,aes(x=PremTotal)) + geom_density() + scale_x_log10() + labs(title = "Premium Total")
+ggplot(brvehinsClaims_nm[which(brvehinsClaims$ClaimsTotal>100000),],aes(x=ClaimsTotal)) + geom_histogram() + labs(title = "Claims Total") 
+
+
+
+#ggplot(brvehinsClaimSev,aes(x=claims_SevRob)) + geom_histogram(bins = 40) + labs(title = "Claim Severity Robbery")
+#ggplot(brvehinsClaimSev,aes(x=claims_SevTotColl)) + geom_histogram(bins = 20) + labs(title = "Claim Severity Total Collision")
+#ggplot(brvehins,aes(x=ClaimNbPartColl)) + geom_bar() + labs(title = "Claim number Partial Collision")
+#ggplot(brvehins,aes(x=ClaimNbTotColl)) + geom_bar() + labs(title = "Claim number Total Collision")
+#ggplot(brvehins,aes(x=ClaimNbFire)) + geom_bar() + labs(title = "Claim number Fire")
+#ggplot(brvehins,aes(x=ClaimNbOther)) + geom_bar() + labs(title = "Claim number Other")
+
+
+```
+
+```{r frequency-tables}
+breaks = seq(0, 5000, by=500)
+ClaimTotal.cut = cut(brvehinsClaims_nm$ClaimsTotal, c(-Inf,0,0.5,500,1000,1500,2000,2500,3000,10000,100000,1000000), right=FALSE)
+ClaimTotal.freq = table(ClaimTotal.cut)
+ClaimTotal.freq
+```
+
+
+```{r model initial}
+
+```

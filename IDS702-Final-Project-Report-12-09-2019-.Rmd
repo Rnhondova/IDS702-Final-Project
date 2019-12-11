@@ -1,0 +1,180 @@
+---
+title: "Final Project Report - IDS702"
+author: "Ronald Tinashe Nhondova - RTN6"
+output: pdf_document
+fontsize: 9pt
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(knitr)
+library(ggplot2)
+library(tidyverse)
+library(dplyr)
+library(broom)
+library(lattice)
+library(tweedie)
+library(caret)
+library(statmod)
+library(lme4)
+library(MASS)
+library(boot)
+library(MASS)
+library(jtools)
+library(xtable)
+library(gridExtra)
+library(huxtable)
+library(car)
+library(VIM)
+
+
+
+```
+
+```{r environment-load,echo=FALSE}
+load("ron_final_project.RData")
+```
+## Summary
+This report covers an extensive analysis on a portolio of policies from Brazil automobile insurance industry with data based on AUTOSEG (Statistical System for Automobiles) for the year 2011. The aim of the analysis was to get an understanding of the factors that influenced the claims performance of the porfolio especially with respect to claims frequency (i.e. number of claims) and claims severity (i.e. average claim size). Generalized linear models were used to model the components of claims cost and it was identified that gender, drivers age and sum insured were significant factors in explaining the variation in claims frequency and claims severity. It was also established that the average experience differed by state with Sao Paulo experiencing the largest average claims frequency but interestingly also with the lowest claims severity. A more indepth description of the methodology used, results and conclusions follows below.
+
+## Introduction
+The Brazil Gross Premiums Written (GPW) by the auto insurance industry was US\$14.7BN in 2011 and was estimated to be US$20BN\footnote{2019 Insurance Fact Book} in 2019. According to 2017 statistics, the GPW for the entire insurance industry was approximately 4.1% of the GDP. Given the above, it highlights the significance of the sector to the social and economic welfare of the country.
+
+The main objective of the questions being answered in this report are around the trends observed in the claims experience for this book of policies in the calendar year 2011. The questions of interest are: --
+
+* What were the main drivers of loss/claims costs for the portfolio in question, in particular did the number and size of claims differ by the different demographic factors? If so, how sensitive are the claims to these factors?
+* Did the experience differ by state?
+
+## Data
+As a starting point, I had a look at the dataset which had 1,965,355 vehicle insurance policies in total. It had R\$7.3BN (US\$4BN in 2011\footnote[2]{https://themoneyconverter.com/USD/BRL}) in GPW which was approximately 27% of market share. In addition, R\$4.6BN (US$2.5BN\footnote[2]) in claims cost at 63.4% Claims Ratio, were received from 1,484,861 claims but with 81% of policies having no claims. Variables of interest in the data were: --
+
+* Gender - A character string ("factor") for the gender (also indicates corporate policies).
+* DrivAge - A character string ("factor") for the driver age group.
+* VehYear - A numeric for the vehicle year. VehCode - A character string ("factor") for the vehicle group. 
+* State - A character string for the state name ("factor"). Area - Local area name ("factor").
+* ExposTotal - Total exposure for period.
+* SumInsAvg - Average of sum insured.
+* ClaimNbRob, ClaimNbPartColl, ClaimNbTotColl, ClaimNbFire, ClaimNbOther - Number of claims during the exposure period, respectively for robbery, partial collision, total collision, fire and other guarantees. These were combined to calculate ClaimsNumberTotal.
+* ClaimAmountRob, ClaimAmountPartColl, ClaimAmountTotColl, ClaimAmountFire, ClaimAmountOther - Claim amounts during the exposure period, respectively for robbery, partial collision, total collision, fire and other guarantee. These were combined to calculate Claims Total.
+
+### Exploratory Data Analysis (EDA)
+In the exploratory data analysis, I identified that the data had missing information. Upon further investigation, I discovered that Gender had 3 levels, Male, Female and Corporate. The corporate policies had a lot of missing data (e.g. no driver age) but the quantities in the ExposTotal field, were large in comparison to the individual policies leading me to conclude that these could possibly have been policies covering fleets. As a result, I decided to exclude these policies from the analysis and focus only on individual policies.
+
+As part of the EDA, a lot of interesting trends and observations were identified which were incorporated in the model building process. Some of the key findings are noted below.
+```{r driveragebystate,echo=FALSE,out.width='100%'}
+knitr::include_graphics("GenderDrivAgeState")
+```
+
+The illustration above shows how the average size of a claim (bottom panel) and average number of claims (top panel) varies by Gender over the different age groups, for select states (Sao Paulo, Rio de Janeiro and Minas Gerais). As can be seen in the plots, Males tend to have a higher average claim size and this varies by age group. VehCode was a variable that was considered to be potential variable of interest, but this was highly related to sum insured, so only one of these would be used for modelling to avoid multicollinearity.  
+
+## Model
+### Model Selection
+To get higher resolution into the factors underlying the performance of the portfolio and also avoid the confounding effect of potentially 2 trends cancelling out each and hence not being significant on the aggregate level, the following approach to modelling was carried out: --
+
+$Loss\:Cost=\frac{Total\:Claims}{Exposure\:Total}=\frac{Number\:of\:Claims}{Exposure\:Total}\times\frac{Total\:Claims}{Number\:of\:Claims}=(Claims\:Frequency){\times}(Claims{\:}{Severity})$
+
+Two separate models were then created for ***Claims Frequency*** and ***Claims Severity*** using Poisson and Gamma distributions respectively. The structure of the models is explained further in the ***Final Models*** section. The Poisson and Gamma distributions were chosen because of their positive support/domain and also their long right tail which was apparent in the EDA plots for the distributions for Claim frequency and severity.
+
+Model selection was undertaken by creating various models to account for different interactions and effects, considering both random and fixed effects. EDA findings, Forward and Backward selection was used in conjuction with ANOVA tests, to determine candidate predictors and interactions to add or remove from the models. Additionally, the AIC of the models as well as the p-values of the predictors were assessed at each step to check model fit and prevent overfitting. In the final models chosen, the majority of predictors were significant and the AIC was lower than the next best models, with the significance of difference confirmed by ANOVA tests.
+
+States were the only hierarchy that was eventually used but nested hierachies using Area were considered as well, but models including these did not converge. Additionally, random slopes, such as for Gender and Driver age were considered however, again, the models failed to converge for any random slopes and as such, only random intercepts by State were used in the model building process.
+
+### Final Models
+The final models chosen were as follows: --
+
+#### Claim Frequency
+$log(\lambda_{ij})=\beta_0+\gamma_{0j}^{State} +\beta_1{GenderMale_{i}} +{\sum_{j=2}^5}\beta_{2j}{DrivAge_{ij}} +\beta_3{SumInsAvg_{i}} +{\sum_{j=2}^5}\beta_{4j}{GenderMale_i:DrivAge_{ij}} +{\sum_{j=2}^5}\beta_{5j}{{SumInsAvg}_i:DrivAge_{ij}} + log({Exposure\:Total}_{i})$
+
+$where \: ClaimNumber_{i}|{x_{ij}}$\~$Poisson(\lambda_{i}) \: and \: \gamma_{0j}^{State}$~$N(0,\sigma^2)$
+\small
+```{r claim-frequency-summary,echo=FALSE,caption="Claim Frequency",fig.subcap="Claims Frequency"}
+glmClaimfreq.fit4 %>% summ(confint=TRUE,exp=TRUE,re.table=FALSE,
+ci.width=.95, digit=5, model.info=getOption("summ-model.info", FALSE), model.fit=getOption("summ-model.fit", FALSE), groups.table = getOption("summ-groups.table", FALSE))
+
+```
+\normalsize
+#### Claim Severity
+$log(\mu_{ij})=\beta_0+\gamma_{0j}^{State} +\beta_1{GenderMale_{i}} +{\sum_{j=2}^5}\beta_{2j}{DrivAge_{ij}} +\beta_3{SumInsAvg_{i}} +{\sum_{j=2}^5}\beta_{4j}{GenderMale_i:DrivAge_{ij}} +{\sum_{j=2}^5}\beta_{5j}{SumInsAvg_i:DrivAge_{ij}}$ 
+
+$where \: {ClaimSeverity}_{i}|{x_{i}}$\~$Gamma(\alpha_{i},\lambda_{i}) \: and \: \gamma_{0j}^{State}$\~$N(0,\sigma^2)$
+
+\small
+```{r claim-severity-summary,echo=FALSE,,out.height='40%'}
+glmClaimsev.mixed.fit1 %>% summ(confint=TRUE,exp=TRUE,re.table=FALSE,
+ci.width=.95, digit=5, model.info=getOption("summ-model.info", FALSE), model.fit=getOption("summ-model.fit", FALSE), groups.table = getOption("summ-groups.table", FALSE))
+
+```
+\normalsize
+In the final models, Female drivers aged 55 and older  were used as the baseline factors that are absorbed into the intercept in both Claim Frequency and Severity.
+
+### Model Assessment
+Model assessment was primarily undertaken by considering the RMSE for both models. The final RMSE for the models for the claims frequency and severity was 4.67 and 54228 respectively. Multicollinearity was also checked on both models using generalized VIF. No factor had a generalized VIF value above 5 in both models, confirming no multicollinearity. The plot of predicted vs actual showed a linear trend with a few outliers but nothing raised immediate concerns. The outliers though, signalled potentially in the future, a need to split the modelling of claims into attritional (moderate claims) and very large claims. This is a consideration because in the insurance industry, it has been observed that the extreme claim events tend to have different claim distributions than attritional claims, justifying use of extreme value distributions like for example Gumbel distribution.
+
+## Results
+Of primary interest, from the summary statistics of the models shown above, is that the Maximum Likelihood Estimates for the coefficients, for the economic and demographic indicators Gender, Drivers Age, Sum Insured and the intercations between Drivers Age with Gender and Sum Insured, are for both the Claims Frequency and Severity models, significant (except for GenderMale:DrivAge26-35 in the claims severity model). This suggests that expected number of claims and average size of each claim, differs significantly by demographic group. For example, the models suggest that males aged 55 and older, have 21% less number of claims but with the average size of each claim being 27% higher than their female counterparts. Similarly, female drivers aged 55 and older, seem to experience a higher number of claims but with lower size per claim when compared to the other age groups e.g. age group 26-35 has approximately 14% lower expected number of claims but with a 43% higher average size of claims. The interactions highlight that as male drivers get younger, then the expected number of claims and average size of a claim also increase, with rate of increase highest for 18-25 drivers at increases of 66% and 12% respectively. On the other hand, it was interesting to note that as the sum insured increased, the expected number of claims would decrease but with the average size of a claim increasing as well (although at a slightly higher rate). The above comments on sensitivities of claims severity and frequency to changes in the demographic or economic factors, are made assuming all other factors remained constant.  
+
+```{r plts,echo=FALSE,out.height='25%'}
+#Claim Freq
+rand.effect = ranef(glmClaimfreq.fit4, condVar=TRUE)
+qq = attr(ranef(glmClaimfreq.fit4, condVar = TRUE)[[1]], "postVar") 
+df = data.frame(Intercepts=rand.effect$State[,1], sd.interc=2*sqrt(qq[,,1:length(qq)]), lev.names=rownames(rand.effect$State)) 
+df$lev.names = factor(df$lev.names, levels=df$lev.names[order(df$Intercepts)]) 
+Claimfreq_dotplt<-ggplot(df, aes(lev.names, Intercepts, shape=lev.names)) + geom_hline(yintercept=0) + geom_errorbar(aes(ymin=Intercepts-sd.interc,ymax=Intercepts+sd.interc), width=0) + geom_point() + guides(size=FALSE, shape=FALSE) + scale_shape_manual(values=rep(2, 27)) + theme_classic() + labs(x="State") + theme(axis.text.x=element_text(size=rel(1)), axis.title.x=element_text(size=rel(1.2)), axis.text.y=element_text(size=rel(1)), axis.title.y=element_text(size=rel(1.2)), panel.grid.minor=element_blank(), panel.grid.major.x=element_blank()) + coord_flip() + labs(title = "Claim Frequency")
+
+#Claim Sev
+rand.effect = ranef(glmClaimsev.mixed.fit1, condVar=TRUE)
+qq = attr(ranef(glmClaimsev.mixed.fit1, condVar = TRUE)[[1]], "postVar") 
+df = data.frame(Intercepts=rand.effect$State[,1], sd.interc=2*sqrt(qq[,,1:length(qq)]), lev.names=rownames(rand.effect$State)) 
+df$lev.names = factor(df$lev.names, levels=df$lev.names[order(df$Intercepts)]) 
+Claimsev_dotplt <- ggplot(df, aes(lev.names, Intercepts, shape=lev.names)) + geom_hline(yintercept=0) + geom_errorbar(aes(ymin=Intercepts-sd.interc,ymax=Intercepts+sd.interc), width=0, color="black") + geom_point() + guides(size=FALSE, shape=FALSE) + scale_shape_manual(values=rep(2, 27)) + theme_classic() + labs(x="State") + theme(axis.text.x=element_text(size=rel(1)), axis.title.x=element_text(size=rel(1.2)), axis.text.y=element_text(size=rel(1)), axis.title.y=element_text(size=rel(1.2)), panel.grid.minor=element_blank(), panel.grid.major.x=element_blank()) + coord_flip() + labs(title = "Claim Severity")
+
+grid.arrange(Claimsev_dotplt,Claimfreq_dotplt,nrow = 1)
+```
+
+The expected number of claims per policy for females aged 55 and over with an average sum assured of R\$38,287, is 0.2, i.e. we expect 2 claims from every 10 policies with this demographic profile that is insured. This is not surprising, given the large proportion of policies that had no claims in the data. This experience as reflected in the dotplot above for claims frequency, varies by state with Sao Paulo increasing the expected frequency by 100% ($e^{0.746}-1$) and Rio Grande do Sul decreasing by 38%.
+
+Given that a policy receives at least one claim, the model predicts that the average size of a claim will be R\$2,249 for females aged 55 and over with an average sum insured of R\$33,872. This varies by state with Parana increasing the average claim size by 67% and Sao Paulo on the opposite end, experiencing a reduction of 46%.
+
+## Conclusion
+The above results show that gender, drivers age and the sum insured on the policy are significant indicators for the difference in policy experience with respect to number of claims and average size of each claim. In addition, the expected average experience for both claims frequency and severity differs by state to a fairly significant extent. The result of this investigation shows that it would potentially be detrimental to model aggregate claims distribution because of some trends offsetting each other, resulting in overall insignificance of factor at aggregate level. For example being Female seems to increase claims frequency but also results in a reduced claims severity with reverse true for Males. At an aggregate level, this might manifest as if Gender, is not a significant predictor of loss/claims cost, but depending on the insurers specific circumstances, those underlying trends might have different implications. For example, if claims processing cost is significantly high for one insurer, the frequency of claims might be of importance to them. For claims severity, the Sum insured seems to be the most important predictor, so the insurer could use this as main risk proxy for managing claims severity exposure or dashboard metric.
+
+It is important to note at this stage some limitations of this analysis and modeling framework. Firstly, residual plots for the model were made but due to most variables being categorical, that made these difficult to interpret. Model assessment was limnited in this respect and rather a lot of significance placed on RMSE and consistency of performance between the training and test sets. Secondly, the removal of Corporate policies from the data might have introduced indirect bias into the analysis, so a seperate analysis on these might need to be done, to check if the inferences on the individual policies translate to corporate. A limited number of variables were included in the data, so more comprehensive data set might be required to further reduce the residual variation that is still unexplained by the model.
+
+For further work, I was considering comparing the model performance to other more advanced algorithms like random Forests. Modelling of the aggregate claims/loss cost using a tweedie distribution, would also be beneficial to compare performance relative to approach taken here.
+
+\newpage
+## Appendix
+### References
+* http://statmath.wu.ac.at/courses/heather_turner/glmCourse_001.pdf - Introduction to Generalized Linear Models
+* Institute and Faculty of Actuaries - CT6 Exam Notes
+* University of Cape Town STA3041F Course Notes
+* CASdatasets package R
+* 2019 Insurance Fact Book
+
+
+### Rest of Appendix
+```{r missing data}
+aggr(brvehinsClaims,col=c("lightblue3","darkred"),numbers=TRUE,sortVars=TRUE,labels=names(brvehinsClaims),
+                    cex.axis=.7,gap=3,ylab=c("Proportion missing","Missingness pattern"))
+```
+
+```{r multicollinearity}
+vif(glmClaimsev.mixed.fit1)
+vif(glmClaimfreq.fit4)
+RMSE.freq <- sqrt(mean((trainingClaimFreq.df$ClaimsNumberTotal - predict(glmClaimfreq.fit4,type="response"))^2))
+RMSE.sev <- sqrt(mean((trainingClaimSev.df$ClaimSeverity - predict(glmClaimsev.mixed.fit1,type="response"))^2))
+```
+
+```{r model assessment, include=TRUE}
+plot(trainingClaimFreq.df$ClaimsNumberTotal,predict(glmClaimfreq.fit4,type="response"))
+```
+
+```{r driveragebystate2,echo=FALSE,out.width='80%'}
+knitr::include_graphics("DriverAgebyState")
+```
+```{r claimsdistr,echo=FALSE,out.width='80%'}
+knitr::include_graphics("ClaimsDistr")
+```
+```{r claimsevdistr,echo=FALSE,out.width='80%'}
+knitr::include_graphics("SeverityDistr")
+```

@@ -1,0 +1,254 @@
+---
+title: "Final Project_v3"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(CASdatasets)
+library(ggplot2)
+library(mice)
+library(dplyr)
+library(VIM)
+library(lattice)
+library(tweedie)
+library(caret)
+library(statmod)
+library(lme4)
+library(doParallel)
+library(boot)
+
+```
+
+
+```{r data_import}
+data(brvehins1a,brvehins1b,brvehins1c,brvehins1d,brvehins1e)
+
+brvehins_comb <- dplyr::rbind_all(list(brvehins1a,brvehins1b,brvehins1c,brvehins1d,brvehins1e))
+
+brvehinsClaims <- brvehins_comb %>% mutate(ClaimsNumberTotal=rowSums(brvehins_comb[,c(14:18)]),ClaimsTotal=rowSums(brvehins_comb[,c(19:23)])) %>% dplyr::select(-c(StateAb,Area,ExposFireRob,PremFireRob,VehModel,ClaimNbRob,ClaimNbPartColl,ClaimNbTotColl,ClaimNbFire,ClaimNbOther,ClaimAmountRob,ClaimAmountPartColl, ClaimAmountTotColl, ClaimAmountFire, ClaimAmountOther))  %>% filter(Gender != "Corporate")
+
+```
+
+```{r visualize missing data}
+cl <- makePSOCKcluster(5)
+registerDoParallel(cl)
+
+missingplot <- aggr(brvehinsClaims,col=c("lightblue3","darkred"),numbers=TRUE,sortVars=TRUE,labels=names(brvehinsClaims),
+                    cex.axis=.7,gap=3,ylab=c("Proportion missing","Missingness pattern"))
+
+stopCluster(cl)
+missingplot
+```
+
+```{r impute-missing-data}
+
+
+#brvehinsClaims_imp <- mice(brvehinsClaims,m=2,defaultMethod=c("norm","logreg","polyreg","polr"),print=F,seed = 1234)
+#strpplot.plt <- stripplot(brvehinsClaims_imp, col=c("grey","darkred"),pch=c(1,20))
+#densityplot.plt <- densityplot(brvehinsClaims_imp)
+
+#stopCluster(cl)
+
+#strpplot.plt
+#densityplot.plt
+```
+
+```{r datawrangle1}
+
+modelling.df <- brvehinsClaims %>% filter(rowSums(is.na(brvehinsClaims))==0)
+
+outlierKD <- function(dt, var) {
+     var_name <- eval(substitute(var),eval(dt))
+     na1 <- sum(is.na(var_name))
+     m1 <- mean(var_name, na.rm = T)
+     par(mfrow=c(2, 2), oma=c(0,0,3,0))
+     boxplot(var_name, main="With outliers")
+     hist(var_name, main="With outliers", xlab=NA, ylab=NA)
+     outlier <- boxplot.stats(var_name)$out
+     mo <- mean(outlier)
+     var_name <- ifelse(var_name %in% outlier, NA, var_name)
+     boxplot(var_name, main="Without outliers")
+     hist(var_name, main="Without outliers", xlab=NA, ylab=NA)
+     title("Outlier Check", outer=TRUE)
+     na2 <- sum(is.na(var_name))
+     cat("Outliers identified:", na2 - na1, "n")
+     cat("Propotion (%) of outliers:", round((na2 - na1) / sum(!is.na(var_name))*100, 1), "n")
+     cat("Mean of the outliers:", round(mo, 2), "n")
+     m2 <- mean(var_name, na.rm = T)
+     cat("Mean without removing outliers:", round(m1, 2), "n")
+     cat("Mean if we remove outliers:", round(m2, 2), "n")
+     response <- readline(prompt="Do you want to remove outliers and to replace with NA? [yes/no]: ")
+     if(response == "y" | response == "yes"){
+          dt[as.character(substitute(var))] <- invisible(var_name)
+          assign(as.character(as.list(match.call())$dt), dt, envir = .GlobalEnv)
+          cat("Outliers successfully removed", "n")
+          return(invisible(dt))
+     } else{
+          cat("Nothing changed", "n")
+          return(invisible(var_name))
+     }
+}
+
+modelling_claims.df <- modelling.df %>% filter(ExposTotal >0.08 & VehYear>0 & SumInsAvg>0) %>% select(-c(PremTotal))
+modelling_claimsev.df <- modelling.df %>% filter(ExposTotal >0.08 & VehYear>0 & SumInsAvg>0 & ClaimsTotal>0) %>% select(-c(PremTotal))
+modelling_numclaims.df <- modelling.df %>% filter(ExposTotal >0.08 & VehYear>0 & SumInsAvg>0) %>% select(-c(PremTotal))
+modelling_premiums.df <- modelling.df %>% filter(ExposTotal >0.08 & VehYear>0 & SumInsAvg>0) %>% select(-c(ClaimsTotal,ClaimsNumberTotal))
+
+modelling_claims.df$VehYear <- as.factor(modelling_claims.df$VehYear)
+modelling_claims.df<-modelling_claims.df %>% mutate(ClaimsAdjusted=ClaimsTotal/ExposTotal)
+modelling_claims.df <- modelling_claims.df %>% select(-c(ClaimsNumberTotal))
+modelling_claims.df <- rbind(outlierKD(dt = modelling_claims.df[which(modelling_claims.df$ClaimsAdjusted>0),], var=ClaimsAdjusted),modelling_claims.df[which(modelling_claims.df$ClaimsAdjusted==0),])
+modelling_claims.df <- modelling_claims.df %>% filter(rowSums(is.na(modelling_claims.df))==0)
+modelling_claims.df <- droplevels(modelling_claims.df)
+
+
+summary(modelling_claims.df)
+
+modelling_claimsev.df$VehYear <- as.factor(modelling_claimsev.df$VehYear)
+modelling_claimsev.df<-modelling_claimsev.df %>% mutate(ClaimSeverity=ClaimsTotal/ClaimsNumberTotal)
+modelling_claimsev.df <- modelling_claimsev.df %>% filter(ClaimsTotal>0) %>% select(-c(ExposTotal,ClaimsTotal))
+modelling_claimsev.df <- droplevels(modelling_claimsev.df)
+summary(modelling_claimsev.df)
+
+modelling_numclaims.df$VehYear <- as.factor(modelling_numclaims.df$VehYear)
+modelling_numclaims.df<-modelling_numclaims.df %>% mutate(ClaimFreq=ClaimsNumberTotal/ExposTotal)
+modelling_numclaims.df <- modelling_numclaims.df %>% mutate(SumInsAvg=SumInsAvg)
+modelling_numclaims.df <- modelling_numclaims.df %>% select(-c(ClaimsTotal))
+modelling_numclaims.df <- droplevels(modelling_numclaims.df)
+summary(modelling_numclaims.df)
+```
+
+```{r dataSplit}
+
+set.seed(107)
+inTrain <- createDataPartition(
+  y = modelling_claims.df$ClaimsTotal,
+  ## the outcome data are needed
+  p = .75,
+  ## The percentage of data in the
+  ## training set
+  list = FALSE
+)
+
+trainingClaims.df <- modelling_claims.df[inTrain,]
+scale_claims <- trainingClaims.df %>% summarize(mean_sumass=mean(SumInsAvg),sd_sumass=sd(SumInsAvg))
+trainingClaims.df <- trainingClaims.df %>% mutate(SumInsAvg=(SumInsAvg - !!scale_claims$mean_sumass)/ !!scale_claims$sd_sumass,ClaimsAdjusted=ClaimsAdjusted/1000,ClaimsTotal=ClaimsTotal/1000)
+testClaims.df <- modelling_claims.df[-inTrain,]
+testClaims.df <- testClaims.df %>% mutate(SumInsAvg=(SumInsAvg - !!scale_claims$mean_sumass)/ !!scale_claims$sd_sumass)
+
+
+set.seed(108)
+inTrain <- createDataPartition(
+  y = modelling_claimsev.df$ClaimSeverity,
+  ## the outcome data are needed
+  p = .75,
+  ## The percentage of data in the
+  ## training set
+  list = FALSE
+)
+
+trainingClaimSev.df <- modelling_claimsev.df[inTrain,]
+scale_claimsev <- trainingClaimSev.df %>% summarize(mean_sumass=mean(SumInsAvg),sd_sumass=sd(SumInsAvg))
+trainingClaimSev.df <- trainingClaimSev.df %>% mutate(SumInsAvg=(SumInsAvg - !!scale_claimsev$mean_sumass)/ !!scale_claimsev$sd_sumass,ClaimSeverity=ClaimSeverity/1000)
+testClaimSev.df <- modelling_claimsev.df[-inTrain,]
+testClaimSev.df <- testClaimSev.df %>% mutate(SumInsAvg=(SumInsAvg - !!scale_claimsev$mean_sumass)/ !!scale_claimsev$sd_sumass)
+
+set.seed(1081)
+inTrain <- createDataPartition(
+  y = modelling_numclaims.df$ClaimFreq,
+  ## the outcome data are needed
+  p = .75,
+  ## The percentage of data in the
+  ## training set
+  list = FALSE
+)
+
+trainingClaimFreq.df <- modelling_numclaims.df[inTrain,]
+scale_claimfreq <- trainingClaimFreq.df %>% summarize(mean_sumass=mean(SumInsAvg),sd_sumass=sd(SumInsAvg))
+trainingClaimFreq.df <- trainingClaimFreq.df %>% mutate(SumInsAvg=(SumInsAvg - !!scale_claimfreq$mean_sumass)/ !!scale_claimfreq$sd_sumass)
+testClaimFreq.df <- modelling_numclaims.df[-inTrain,]
+testClaimFreq.df <- testClaimFreq.df %>% mutate(SumInsAvg=(SumInsAvg - !!scale_claimfreq$mean_sumass)/ !!scale_claimfreq$sd_sumass)
+```
+
+
+```{r tweedie-profiling}
+
+xi.vec <- seq(1.1, 1.9, by=0.1)
+out <- tweedie.profile( ClaimsTotal~1, xi.vec=xi.vec, do.plot=TRUE, verbose=TRUE,data = trainingClaims.df)
+
+
+```
+
+
+
+```{r initial model: total claims}
+
+ glmClaims.fit1 <-glm(ClaimsTotal/1000 ~ Gender + DrivAge + SumInsAvg + State + State:SumInsAvg + Gender:DrivAge + SumInsAvg:DrivAge, family=tweedie(var.power=out$xi.max, link.power=0),offset = log(ExposTotal),data = trainingClaims.df )
+ glmClaims.mixed.fit1 <-glmer(ClaimsTotal ~ Gender + DrivAge + SumInsAvg + Gender:DrivAge + SumInsAvg:DrivAge + (1|State), family=tweedie(var.power=out$xi.max, link.power=0),offset = log(ExposTotal),data = trainingClaims.df )
+ 
+
+summary(glmClaims.fit1)
+summary(glmClaims.mixed.fit1)
+```
+
+```{r initial model: claims severity}
+cl <- makePSOCKcluster(5)
+registerDoParallel(cl)
+
+ 
+ glmClaimsev.fit1 <-glm(ClaimSeverity ~ Gender + DrivAge + SumInsAvg + State + State:SumInsAvg + Gender:DrivAge + SumInsAvg:DrivAge, family=Gamma(link="log"),data = trainingClaimSev.df,weights =  trainingClaimSev.df$ClaimsNumberTotal)
+ glmClaimsev.mixed.fit1 <-glmer(ClaimSeverity ~ Gender + DrivAge + SumInsAvg + (1|State) + Gender:DrivAge + SumInsAvg:DrivAge, family=Gamma(link="log"),data = trainingClaimSev.df,weights =  trainingClaimSev.df$ClaimsNumberTotal)
+
+stopCluster(cl)
+
+summary( glmClaimsev.mixed.fit1)
+```
+
+```{r initial model: claims frequency}
+cl <- makePSOCKcluster(5)
+registerDoParallel(cl)
+
+ 
+ glmClaimfreq.fit1 <-glm(ClaimsNumberTotal ~ Gender + DrivAge + SumInsAvg + State + State:SumInsAvg + Gender:DrivAge + SumInsAvg:DrivAge, family=poisson(link="log"),data = trainingClaimFreq.df,offset = log(ExposTotal))
+ glmClaimfreq.fit2 <-glm(ClaimsNumberTotal ~ Gender + DrivAge + SumInsAvg + State + Gender:DrivAge + SumInsAvg:DrivAge, family=quasipoisson(link="log"),data = trainingClaimFreq.df,offset = log(ExposTotal))
+ glmClaimfreq.fit3 <-glm(ClaimsNumberTotal ~ Gender + DrivAge + SumInsAvg + State + Gender:DrivAge + SumInsAvg:DrivAge, family=poisson(link="log"),data = trainingClaimFreq.df,offset = log(ExposTotal))
+ glmClaimfreq.fit4 <-glmer(ClaimsNumberTotal ~ Gender + DrivAge + SumInsAvg + (1|State) + Gender:DrivAge + SumInsAvg:DrivAge, family=poisson(link="log"),data = trainingClaimFreq.df,offset = log(ExposTotal))
+ glmClaimfreq.fit5 <-glmer(ClaimsNumberTotal ~ Gender + DrivAge + SumInsAvg + (1|State) + (SumInsAvg|State) + Gender:DrivAge + SumInsAvg:DrivAge, family=poisson(link="log"),data = trainingClaimFreq.df,offset = log(ExposTotal))
+ glmClaimfreq.fit6 <-glm(ClaimsNumberTotal ~ Gender + VehYear+ DrivAge + SumInsAvg + State + State:SumInsAvg + Gender:DrivAge + SumInsAvg:DrivAge, family=poisson(link="log"),data = trainingClaimFreq.df,offset = log(ExposTotal))
+
+ #glmClaimsev.mixed.fit1 <-glmer(ClaimSeverity ~ Gender + DrivAge + SumInsAvg + (1|State) + Gender:DrivAge + SumInsAvg:DrivAge, family=Gamma(link="log"),data = trainingClaimSev.df,weights =  trainingClaimSev.df$ClaimsNumberTotal)
+
+stopCluster(cl)
+
+summary(glmClaimfreq.fit1)
+summary(glmClaimfreq.fit2)
+summary(glmClaimfreq.fit3)
+summary(glmClaimfreq.fit4)
+
+dotplot(ranef(glmClaimfreq.fit4, condVar=TRUE))$State
+
+#residuals and predictions
+freqregresid1 <- resid( glmClaimfreq.fit1, type = "pearson")
+freqregpred1 <- predict( glmClaimfreq.fit1,type="response")
+qplot(y=freqregresid1, x=freqregpred1,data=trainingClaimFreq.df,col=State, geom="point",
+      xlab = "Predicted Counts", ylab = "Pearson Residuals")
+
+freqregresid2 <- resid( glmClaimfreq.fit2, type = "pearson")
+freqregpred2 <- predict( glmClaimfreq.fit2,type="response")
+qplot(y=freqregresid2, x=freqregpred2,data=trainingClaimFreq.df,col=State, geom="point",
+      xlab = "Predicted Counts", ylab = "Pearson Residuals")
+
+freqregresid3 <- resid( glmClaimfreq.fit3, type = "pearson")
+freqregpred3 <- predict( glmClaimfreq.fit3,type="response")
+qplot(y=freqregresid3, x=freqregpred3,data=trainingClaimFreq.df,col=State, geom="point",
+      xlab = "Predicted Counts", ylab = "Pearson Residuals")
+```
+
+```{r model-validation}
+plot(residuals(glmClaims.mixed.fit1) ~ fitted(glmClaims.mixed.fit1), xlab = "Fitted",
+ylab = "Residuals")
+abline(0, 0, lty = 2)
+```
+
